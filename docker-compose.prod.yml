@@ -1,0 +1,409 @@
+version: "3.9"
+services:
+  
+  front:
+    image: vero-front
+    container_name: vero-front
+    hostname: vero-front
+    ports:
+      - "80:80"
+    networks:
+      - vero_network
+    restart: always
+    depends_on: 
+      - rabbit
+      - gateway
+      - hub
+  
+  gateway:
+    image: vero-gateway
+    container_name: vero-gateway
+    hostname: vero-gateway
+    ports:
+      - "14000:80"
+    networks:
+      - vero_network
+    restart: always
+    depends_on:
+      - rabbit
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_HTTP_PORTS: 80
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail http://vero-gateway:80/healthz || exit 1"]
+      interval: 40s
+      timeout: 30s
+      retries: 3
+      start_period: 3m
+      
+  auth:
+    image: vero-auth
+    container_name: vero-auth
+    hostname: vero-auth
+    ports:
+      - "14001:80"
+    networks:
+      - vero_network
+    restart: always
+    depends_on: 
+      - rabbit
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_HTTP_PORTS: 80
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail http://vero-auth:80/healthz || exit 1"]
+      interval: 40s
+      timeout: 30s
+      retries: 3
+      start_period: 3m 
+      
+  accounting:
+    image: vero-accounting
+    container_name: vero-accounting
+    hostname: vero-accounting
+    ports:
+      - "14002:80"
+    networks:
+      - vero_network
+    restart: always
+    depends_on: 
+      - rabbit
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_HTTP_PORTS: 80
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail http://vero-accounting:80/healthz || exit 1"]
+      interval: 40s
+      timeout: 30s
+      retries: 3
+      start_period: 3m
+      
+  assignments:
+    image: vero-assignments
+    container_name: vero-assignments
+    hostname: vero-assignments
+    ports:
+      - "14003:80"
+    networks:
+      - vero_network
+    restart: always
+    depends_on: 
+      - rabbit
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_HTTP_PORTS: 80
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail http://vero-assignments:80/healthz || exit 1"]
+      interval: 40s
+      timeout: 30s
+      retries: 3
+      start_period: 3m
+      
+  company:
+    image: vero-company
+    container_name: vero-company
+    hostname: vero-company
+    ports:
+      - "14004:80"
+    networks:
+      - vero_network
+    restart: always
+    depends_on: 
+      - rabbit
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_HTTP_PORTS: 80
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail http://vero-company:80/healthz || exit 1"]
+      interval: 40s
+      timeout: 30s
+      retries: 3
+      start_period: 3m
+      
+  customers:
+    image: vero-customers
+    container_name: vero-customers
+    hostname: vero-customers
+    ports:
+      - "14005:80"
+    networks:
+      - vero_network
+    restart: always
+    depends_on: 
+      - rabbit
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_HTTP_PORTS: 80
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail http://vero-customers:80/healthz || exit 1"]
+      interval: 40s
+      timeout: 30s
+      retries: 3
+      start_period: 3m
+      
+  events:
+    image: vero-events
+    container_name: vero-events
+    hostname: vero-events
+    ports:
+      - "14006:80"
+    networks:
+      - vero_network
+    restart: always
+    depends_on: 
+      - rabbit
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_HTTP_PORTS: 80
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail http://vero-events:80/healthz || exit 1"]
+      interval: 40s
+      timeout: 30s
+      retries: 3
+      start_period: 3m
+      
+  hub:
+    image: vero-hub
+    container_name: vero-hub
+    hostname: vero-hub
+    ports:
+      - "14007:80"
+    networks:
+      - vero_network
+    restart: always
+    depends_on: 
+      - rabbit
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_HTTP_PORTS: 80
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail http://vero-hub:80/healthz || exit 1"]
+      interval: 40s
+      timeout: 30s
+      retries: 3
+      start_period: 3m
+      
+  files:
+    image: vero-files
+    container_name: vero-files
+    hostname: vero-files
+    ports:
+      - "14008:80"
+    networks:
+      - vero_network
+    restart: always
+    depends_on: 
+      - rabbit
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_HTTP_PORTS: 80
+    volumes:
+      - type: bind
+        source: /home/vero-files/
+        target: /home/vero-files/
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail http://vero-files:80/healthz || exit 1"]
+      interval: 40s
+      timeout: 30s
+      retries: 3
+      start_period: 3m
+      
+  offers:
+    image: vero-offers
+    container_name: vero-offers
+    hostname: vero-offers
+    ports:
+      - "14009:80"
+    networks:
+      - vero_network
+    restart: always
+    depends_on: 
+      - rabbit
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_HTTP_PORTS: 80
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail http://vero-offers:80/healthz || exit 1"]
+      interval: 40s
+      timeout: 30s
+      retries: 3
+      start_period: 3m
+      
+  notifications:
+    image: vero-notifications
+    container_name: vero-notifications
+    hostname: vero-notifications
+    ports:
+      - "14010:80"
+    networks:
+      - vero_network
+    restart: always
+    depends_on: 
+      - rabbit
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_HTTP_PORTS: 80
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail http://vero-notifications:80/healthz || exit 1"]
+      interval: 40s
+      timeout: 30s
+      retries: 3
+      start_period: 3m
+      
+  transporting:
+    image: vero-transporting
+    container_name: vero-transporting
+    hostname: vero-transporting
+    ports:
+      - "14011:80"
+    networks:
+      - vero_network
+    restart: always
+    depends_on: 
+      - rabbit
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_HTTP_PORTS: 80
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail http://vero-transporting:80/healthz || exit 1"]
+      interval: 40s
+      timeout: 30s
+      retries: 3
+      start_period: 3m
+      
+  migrator:
+    image: vero-migrator
+    container_name: vero-migrator
+    hostname: vero-migrator
+    ports:
+      - "14012:80"
+    networks:
+      - vero_network
+    restart: always
+    depends_on: 
+      - rabbit
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_HTTP_PORTS: 80
+      
+  reports:
+    image: vero-reports
+    container_name: vero-reports
+    hostname: vero-reports
+    ports:
+      - "14013:80"
+    networks:
+      - vero_network
+    restart: always
+    depends_on: 
+      - rabbit
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_HTTP_PORTS: 80
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail http://vero-reports:80/healthz || exit 1"]
+      interval: 40s
+      timeout: 30s
+      retries: 3
+      start_period: 3m
+      
+  subcontractors:
+    image: vero-subcontractors
+    container_name: vero-subcontractors
+    hostname: vero-subcontractors
+    ports:
+      - "14014:80"
+    networks:
+      - vero_network
+    restart: always
+    depends_on: 
+      - rabbit
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ASPNETCORE_HTTP_PORTS: 80
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail http://vero-subcontractors:80/healthz || exit 1"]
+      interval: 40s
+      timeout: 30s
+      retries: 3
+      start_period: 3m
+      
+  rabbit:
+    deploy:
+      resources:
+        reservations:
+          memory: 512MB
+    image: masstransit/rabbitmq
+    container_name: vero-rabbit
+    hostname: vero-rabbit
+    ports:
+      - 5672:5672
+      - 15672:15672
+    networks:
+      - vero_network
+    restart: always
+    environment:
+      RABBITMQ_DEFAULT_USER: vero 
+      RABBITMQ_DEFAULT_PASS: vero
+      
+  loki:
+    image: grafana/loki:latest
+    container_name: vero-loki
+    hostname: vero-loki
+    restart: always
+    networks:
+      - vero_network
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - loki-data:/loki
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: vero-prometheus
+    hostname: vero-prometheus
+    restart: always
+    networks:
+      - vero_network
+    ports:
+      - "9090:9090"
+    volumes:
+      - prometheus-data:/prometheus
+      - /var/run/docker.sock:/var/run/docker.sock
+      - type: bind
+        source: /.docker/tools/prometheus/prometheus.yml
+        target: /etc/prometheus/prometheus.yml
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: vero-grafana
+    hostname: vero-grafana
+    restart: always
+    networks:
+      - vero_network
+    ports:
+      - "4000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=Fh1MjpubU2VdKKCEWB3bgIZcsWlbyD9revqgeIVnlUmPala7De
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - type: bind
+        source: /.docker/tools/grafana/dashboards
+        target: /etc/grafana/provisioning/dashboards
+      - type: bind
+        source: /.docker/tools/grafana/datasources
+        target: /etc/grafana/provisioning/datasources
+    depends_on:
+      - loki
+      - prometheus
+      
+networks:
+  vero_network: 
+    name: "vero-network"
+    
+volumes:
+  loki-data:
+  prometheus-data:
+  grafana-data:

@@ -1,0 +1,514 @@
+variables:
+  image_backend: mcr.microsoft.com/dotnet/sdk:8.0-bookworm-slim
+  image_frontend: node:lts-alpine3.17
+  warnings_to_suppress: -noWarn:CS8601 -noWarn:CS8602 -noWarn:CS8618
+
+  front: pb-front
+  gateway: pb-gateway
+  data: pb-data
+  core: pb-core
+  company: pb-company
+  catalog: pb-catalog
+  notifications: pb-notifications
+  migrator: pb-migrator
+  files: pb-files
+  bff: pb-bff
+  accounting: pb-accounting
+  ordering: pb-ordering
+  mocker: pb-mocker
+  warehousing: pb-warehousing
+
+  dir: /.docker
+  dir_front: /.docker/publish/front
+  dir_gateway: /.docker/publish/gateway
+  dir_data: /.docker/publish/data
+  dir_core: /.docker/publish/core
+  dir_company: /.docker/publish/company
+  dir_catalog: /.docker/publish/catalog
+  dir_notifications: /.docker/publish/notifications
+  dir_files: /.docker/publish/files
+  dir_bff: /.docker/publish/bff
+  dir_accounting: /.docker/publish/accounting
+  dir_ordering: /.docker/publish/ordering
+  dir_mocker: /.docker/publish/mocker
+  dir_migrator: /.docker/publish/migrator
+  dir_warehousing: /.docker/publish/warehousing
+
+  changes_compose: docker-compose.*
+  changes_front: front/**/*
+  changes_backend: backend/src/**/*
+  changes_shared: backend/src/Shared/**/*
+  changes_gateway: backend/src/Gateway/**/*
+  changes_data: backend/src/Data/**/*
+  changes_core: backend/src/Core/**/*
+  changes_company: backend/src/Company/**/*
+  changes_catalog: backend/src/Catalog/**/*
+  changes_notifications: backend/src/Notifications/**/*
+  changes_files: backend/src/Files/**/*
+  changes_bff: backend/src/Bff/**/*
+  changes_accounting: backend/src/Accounting/**/*
+  changes_ordering: backend/src/Ordering/**/*
+  changes_mocker: backend/src/tools/Mocker/**/*
+  changes_migrator: backend/src/DbMigrator/**/*
+  changes_warehousing: backend/src/Warehousing/**/*
+
+stages:
+  - compose
+  - build & test
+  - dockerize
+  - migrate
+  - deploy
+
+#= WORKFLOW =======================================================================================
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE != "push"'
+      when: never
+
+    - if: '$CI_COMMIT_REF_NAME == "test"'
+      variables:
+        environment: Test
+        build_front_command: npm run build:test
+        runner: pbr-test
+
+    - if: '$CI_COMMIT_REF_NAME == "demo"'
+      variables:
+        environment: Demo
+        build_front_command: npm run build:demo
+        runner: pbr-demo
+
+    - if: '$CI_COMMIT_REF_NAME == "production"'
+      variables:
+        environment: Production
+        build_front_command: npm run build:production
+        runner: pbr-production
+
+    - when: never
+
+#= COMPOSE ==========================================================================================
+compose:
+  stage: compose
+
+  rules:
+    - changes:
+        - $changes_compose
+  tags:
+    - $runner
+
+  script:
+    - echo "runner is '$runner'"
+    - echo "CI_COMMIT_REF_NAME is '$CI_COMMIT_REF_NAME'"
+    - if [[ "$CI_COMMIT_REF_NAME" == "test" ]]; then
+      cp ./docker-compose.test.yml $dir/docker-compose.yml;
+      elif  [[ "$CI_COMMIT_REF_NAME" == "demo" ]]; then
+      cp ./docker-compose.demo.yml $dir/docker-compose.yml;
+      else
+      cp ./docker-compose.production.yml $dir/docker-compose.yml;
+      fi
+
+#= BUILD & TEST ========================================================================================
+build-frontend:
+  stage: build & test
+  image: $image_frontend
+
+  rules:
+    - changes:
+        - $changes_front
+  tags:
+    - $runner
+
+  script:
+    - echo environment = $environment
+    - mkdir -p $dir_front
+    - mkdir -p $dir_front/nginx
+    - cd front
+    - npm install
+    - npm run update-build-date
+    - $build_front_command
+    - cp -r dist $dir_front/build
+    - cp ./Dockerfile $dir_front
+    - cp ./.dockerignore $dir_front
+    - echo "CI_COMMIT_REF_NAME is $CI_COMMIT_REF_NAME"
+    - if [[ "$CI_COMMIT_REF_NAME" == "test" ]]; then
+      cp nginx/nginx-test.conf $dir_front/nginx/nginx.conf;
+      elif [[ "$CI_COMMIT_REF_NAME" == "demo" ]]; then
+      cp nginx/nginx-demo.conf $dir_front/nginx/nginx.conf;
+      elif [[ "$CI_COMMIT_REF_NAME" == "production" ]]; then
+      cp nginx/nginx-prod.conf $dir_front/nginx/nginx.conf;
+      else
+      exit 1;
+      fi
+
+build-backend:
+  stage: build & test
+  image: $image_backend
+
+  rules:
+    - changes:
+        - $changes_backend
+  tags:
+    - $runner
+
+  coverage: '/TOTAL_COVERAGE=(\d+.\d+)/'
+
+  before_script:
+    - "export DOTNET_CLI_TELEMETRY_OPTOUT=1"
+    - "export PATH=$PATH:$HOME/.dotnet/tools"
+    - 'dotnet tool install dotnet-reportgenerator-globaltool --global || echo "DRG already installed."'
+    - apt update
+    - apt-get --yes --force-yes install bc
+
+  script:
+    - cd backend
+    - dotnet test ./src/ProfiBiznes.sln --os linux -v n --consoleLoggerParameters:ErrorsOnly --collect:"XPlat Code Coverage" --results-directory cobertura --filter "Category!=Dev"
+
+    #= GATEWAY
+    - mkdir -p $dir_gateway
+    - dotnet publish ./src/Gateway/Gateway.API/Gateway.API.csproj -c $environment -r linux-x64 --no-self-contained $warnings_to_suppress --output $dir_gateway
+    - cp ./src/Gateway/Gateway.API/ocelot.* $dir_gateway
+    - cp ./Dockerfile $dir_gateway
+    - cp ./.dockerignore $dir_gateway
+
+    #= CORE
+    - mkdir -p $dir_core
+    - dotnet publish ./src/Core/Core.API/Core.API.csproj -c $environment -r linux-x64 --no-self-contained $warnings_to_suppress --output $dir_core
+    - cp ./Dockerfile $dir_core
+    - cp ./.dockerignore $dir_core
+
+    #= COMPANY
+    - mkdir -p $dir_company
+    - dotnet publish ./src/Company/Company.API/Company.API.csproj -c $environment -r linux-x64 --no-self-contained $warnings_to_suppress --output $dir_company
+    - cp ./Dockerfile $dir_company
+    - cp ./.dockerignore $dir_company
+
+    #= CATALOG
+    - mkdir -p $dir_catalog
+    - dotnet publish ./src/Catalog/Catalog.API/Catalog.API.csproj -c $environment -r linux-x64 --no-self-contained $warnings_to_suppress --output $dir_catalog
+    - cp ./Dockerfile $dir_catalog
+    - cp ./.dockerignore $dir_catalog
+
+    #= DATA
+    - mkdir -p $dir_data
+    - dotnet run --project ./src/Data/Data.API/Data.API.csproj  -- codegen write
+    - dotnet publish ./src/Data/Data.API/Data.API.csproj -c $environment -r linux-x64 --no-self-contained $warnings_to_suppress --output $dir_data
+    - cp -ruf ./src/Data/Data.API/Internal $dir_data
+    - cp ./Dockerfile $dir_data
+    - cp ./.dockerignore $dir_data
+
+    #= NOTIFICATIONS
+    - mkdir -p $dir_notifications
+    - dotnet publish ./src/Notifications/Notifications.API/Notifications.API.csproj -c $environment -r linux-x64 --no-self-contained $warnings_to_suppress --output $dir_notifications
+    - cp ./Dockerfile $dir_notifications
+    - cp ./.dockerignore $dir_notifications
+
+    #= FILES
+    - mkdir -p $dir_files
+    - dotnet publish ./src/Files/Files.API/Files.API.csproj -c $environment -r linux-x64 --no-self-contained $warnings_to_suppress --output $dir_files
+    - cp ./Dockerfile $dir_files
+    - cp ./.dockerignore $dir_files
+
+    #= BFF
+    - mkdir -p $dir_bff
+    - dotnet publish ./src/Bff/Bff/Bff.csproj -c $environment -r linux-x64 --no-self-contained $warnings_to_suppress --output $dir_bff
+    - cp ./Dockerfile $dir_bff
+    - cp ./.dockerignore $dir_bff
+
+    #= ACCOUNTING
+    - mkdir -p $dir_accounting
+    - dotnet publish ./src/Accounting/Accounting.API/Accounting.API.csproj -c $environment -r linux-x64 --no-self-contained $warnings_to_suppress --output $dir_accounting
+    - cp ./Dockerfile $dir_accounting
+    - cp ./.dockerignore $dir_accounting
+
+    #= ORDERING
+    - mkdir -p $dir_ordering
+    - dotnet publish ./src/Ordering/Ordering.API/Ordering.API.csproj -c $environment -r linux-x64 --no-self-contained $warnings_to_suppress --output $dir_ordering
+    - cp ./Dockerfile $dir_ordering
+    - cp ./.dockerignore $dir_ordering
+
+    #= MOCKER
+    - mkdir -p $dir_mocker
+    - dotnet publish ./src/tools/Mocker/Mocker.csproj -c $environment -r linux-x64 --no-self-contained $warnings_to_suppress --output $dir_mocker
+    - cp ./Dockerfile $dir_mocker
+    - cp ./.dockerignore $dir_mocker
+
+    #= MIGRATOR
+    - mkdir -p $dir_migrator
+    - dotnet publish ./src/DbMigrator/DbMigrator/DbMigrator.csproj -c $environment -r linux-x64 --no-self-contained $warnings_to_suppress --output $dir_migrator
+    - cp ./Dockerfile $dir_migrator
+    - cp ./.dockerignore $dir_migrator
+
+    #= Warehousing
+    - mkdir -p $dir_warehousing
+    - dotnet publish ./src/Warehousing/Warehousing.API/Warehousing.API.csproj -c $environment -r linux-x64 --no-self-contained $warnings_to_suppress --output $dir_warehousing
+    - cp ./Dockerfile $dir_warehousing
+    - cp ./.dockerignore $dir_warehousing
+
+    - reportgenerator -reports:"**/coverage.cobertura.xml" -targetdir:"." -reporttypes:"cobertura"
+    - COVERAGE_VALUE=$(grep -oPm 1 'line-rate="\K([0-9\.]{5})' "./Cobertura.xml")
+    - COVERAGE=$(echo "scale=2; $COVERAGE_VALUE * 100" | bc)
+    - 'echo "TOTAL_COVERAGE=$COVERAGE%"'
+
+  artifacts:
+    when: always
+    expire_in: 1 day
+    paths:
+      - ./backend/Cobertura.xml
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: ./backend/Cobertura.xml
+
+#= DOCKERIZE ======================================================================================
+dockerize-frontend:
+  stage: dockerize
+
+  rules:
+    - changes:
+        - $changes_front
+  tags:
+    - $runner
+
+  script:
+    - docker build -t $front $dir_front
+    - docker save $front -o /.docker/images/$front.tar
+    - docker load -i /.docker/images/$front.tar
+    - rm -rf $dir_front
+    - rm /.docker/images/$front.tar
+
+dockerize-gateway:
+  stage: dockerize
+
+  rules:
+    - changes:
+        - $changes_gateway
+        - $changes_shared
+  tags:
+    - $runner
+
+  script:
+    - docker build -t $gateway $dir_gateway --build-arg project=Gateway.API
+    - docker save $gateway -o /.docker/images/$gateway.tar
+    - docker load -i /.docker/images/$gateway.tar
+    - rm -rf $dir_gateway
+    - rm /.docker/images/$gateway.tar
+
+dockerize-data:
+  stage: dockerize
+
+  rules:
+    - changes:
+        - $changes_data
+        - $changes_shared
+  tags:
+    - $runner
+
+  script:
+    - docker build -t $data $dir_data --build-arg project=Data.API
+    - docker save $data -o /.docker/images/$data.tar
+    - docker load -i /.docker/images/$data.tar
+    - rm -rf $dir_data
+    - rm /.docker/images/$data.tar
+
+dockerize-core:
+  stage: dockerize
+
+  rules:
+    - changes:
+        - $changes_core
+        - $changes_shared
+  tags:
+    - $runner
+
+  script:
+    - docker build -t $core $dir_core --build-arg project=Core.API
+    - docker save $core -o /.docker/images/$core.tar
+    - docker load -i /.docker/images/$core.tar
+    - rm -rf $dir_core
+    - rm /.docker/images/$core.tar
+
+dockerize-company:
+  stage: dockerize
+
+  rules:
+    - changes:
+        - $changes_company
+        - $changes_shared
+  tags:
+    - $runner
+
+  script:
+    - docker build -t $company $dir_company --build-arg project=Company.API
+    - docker save $company -o /.docker/images/$company.tar
+    - docker load -i /.docker/images/$company.tar
+    - rm -rf $dir_company
+    - rm /.docker/images/$company.tar
+
+dockerize-catalog:
+  stage: dockerize
+
+  rules:
+    - changes:
+        - $changes_catalog
+        - $changes_shared
+  tags:
+    - $runner
+
+  script:
+    - docker build -t $catalog $dir_catalog --build-arg project=Catalog.API
+    - docker save $catalog -o /.docker/images/$catalog.tar
+    - docker load -i /.docker/images/$catalog.tar
+    - rm -rf $dir_catalog
+    - rm /.docker/images/$catalog.tar
+
+dockerize-notifications:
+  stage: dockerize
+
+  rules:
+    - changes:
+        - $changes_notifications
+        - $changes_shared
+  tags:
+    - $runner
+
+  script:
+    - docker build -t $notifications $dir_notifications --build-arg project=Notifications.API
+    - docker save $notifications -o /.docker/images/$notifications.tar
+    - docker load -i /.docker/images/$notifications.tar
+    - rm -rf $dir_notifications
+    - rm /.docker/images/$notifications.tar
+
+dockerize-files:
+  stage: dockerize
+
+  rules:
+    - changes:
+        - $changes_files
+        - $changes_shared
+  tags:
+    - $runner
+
+  script:
+    - docker build -t $files $dir_files --build-arg project=Files.API
+    - docker save $files -o /.docker/images/$files.tar
+    - docker load -i /.docker/images/$files.tar
+    - rm -rf $dir_files
+    - rm /.docker/images/$files.tar
+
+dockerize-bff:
+  stage: dockerize
+
+  rules:
+    - changes:
+        - $changes_bff
+        - $changes_shared
+  tags:
+    - $runner
+
+  script:
+    - docker build -t $bff $dir_bff --build-arg project=Bff
+    - docker save $bff -o /.docker/images/$bff.tar
+    - docker load -i /.docker/images/$bff.tar
+    - rm -rf $dir_bff
+    - rm /.docker/images/$bff.tar
+
+dockerize-accounting:
+  stage: dockerize
+
+  rules:
+    - changes:
+        - $changes_accounting
+        - $changes_shared
+  tags:
+    - $runner
+
+  script:
+    - docker build -t $accounting $dir_accounting --build-arg project=Accounting.API
+    - docker save $accounting -o /.docker/images/$accounting.tar
+    - docker load -i /.docker/images/$accounting.tar
+    - rm -rf $dir_accounting
+    - rm /.docker/images/$accounting.tar
+
+dockerize-ordering:
+  stage: dockerize
+
+  rules:
+    - changes:
+        - $changes_ordering
+        - $changes_shared
+  tags:
+    - $runner
+
+  script:
+    - docker build -t $ordering $dir_ordering --build-arg project=Ordering.API
+    - docker save $ordering -o /.docker/images/$ordering.tar
+    - docker load -i /.docker/images/$ordering.tar
+    - rm -rf $dir_ordering
+    - rm /.docker/images/$ordering.tar
+
+dockerize-mocker:
+  stage: dockerize
+
+  rules:
+    - if: '$CI_COMMIT_REF_NAME != "production"'
+      changes:
+        - $changes_mocker
+  tags:
+    - $runner
+
+  script:
+    - docker build -t $mocker $dir_mocker --build-arg project=Mocker
+    - docker save $mocker -o /.docker/images/$mocker.tar
+    - docker load -i /.docker/images/$mocker.tar
+    - rm -rf $dir_mocker
+    - rm /.docker/images/$mocker.tar
+
+dockerize-warehousing:
+  stage: dockerize
+
+  rules:
+    - changes:
+        - $changes_warehousing
+        - $changes_shared
+  tags:
+    - $runner
+
+  script:
+    - docker build -t $warehousing $dir_warehousing --build-arg project=Warehousing.API
+    - docker save $warehousing -o /.docker/images/$warehousing.tar
+    - docker load -i /.docker/images/$warehousing.tar
+    - rm -rf $dir_warehousing
+    - rm /.docker/images/$warehousing.tar
+
+#= MIGRATE ========================================================================================
+migrate:
+  stage: migrate
+
+  tags:
+    - $runner
+
+  rules:
+    - changes:
+        - $changes_migrator
+
+  script:
+    - docker build -t $migrator $dir_migrator --build-arg project=DbMigrator
+    - docker run --rm -e ASPNETCORE_ENVIRONMENT=$environment $migrator
+    - rm -rf $dir_migrator
+
+#= DEPLOY =========================================================================================
+deploy:
+  stage: deploy
+
+  rules:
+    - changes:
+        - $changes_backend
+        - $changes_front
+        - $changes_compose
+  tags:
+    - $runner
+
+  script:
+    - cp -ruf ./tools /.docker
+    - cd /.docker
+    - docker compose up -d
+    - docker system prune -f

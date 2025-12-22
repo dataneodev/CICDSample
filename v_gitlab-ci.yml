@@ -1,0 +1,620 @@
+variables:
+  NODE_OPTIONS: --max-old-space-size=8192
+  image_backend: mcr.microsoft.com/dotnet/sdk:9.0-bookworm-slim
+  image_frontend: node:lts-alpine
+  warnings_to_suppress: -noWarn:CS8601 -noWarn:CS8602 -noWarn:CS8618
+  
+  front: vero-front
+  accounting: vero-accounting
+  gateway: vero-gateway
+  auth: vero-auth
+  assignments: vero-assignments
+  company: vero-company
+  customers: vero-customers
+  events: vero-events
+  hub: vero-hub
+  offers: vero-offers
+  files: vero-files
+  notifications: vero-notifications
+  transporting: vero-transporting
+  migrator: vero-migrator
+  reports: vero-reports
+  subcontractors: vero-subcontractors
+  
+  dir: /.docker
+  dir_front: /.docker/publish/front
+  dir_accounting: /.docker/publish/accounting
+  dir_gateway: /.docker/publish/gateway
+  dir_auth: /.docker/publish/auth
+  dir_assignments: /.docker/publish/assignments
+  dir_company: /.docker/publish/company
+  dir_customers: /.docker/publish/customers
+  dir_events: /.docker/publish/events
+  dir_hub: /.docker/publish/hub
+  dir_offers: /.docker/publish/offers
+  dir_files: /.docker/publish/files
+  dir_notifications: /.docker/publish/notifications
+  dir_transporting: /.docker/publish/transporting
+  dir_migrator: /.docker/publish/migrator
+  dir_reports: /.docker/publish/reports
+  dir_subcontractors: /.docker/publish/subcontractors
+  
+  changes_front: front/**/*
+  changes_backend: backend/src/**/*
+  changes_accounting: backend/src/Accounting/**/*
+  changes_gateway: backend/src/Gateway/**/*
+  changes_auth: backend/src/Auth/**/*
+  changes_assignments: backend/src/Assignments/**/*
+  changes_company: backend/src/Company/**/*
+  changes_customers: backend/src/Customers/**/*
+  changes_events: backend/src/Events/**/*
+  changes_hub: backend/src/Hub/**/*
+  changes_offers: backend/src/Offers/**/*
+  changes_files: backend/src/Files/**/*
+  changes_notifications: backend/src/Notifications/**/*
+  changes_transporting: backend/src/Transporting/**/*
+  changes_migrator: backend/src/DBMigrator/**/*
+  changes_shared: backend/src/Shared/**/*
+  changes_reports: backend/src/Reports/**/*
+  changes_subcontractors: backend/src/Subcontractors/**/*
+  
+  DOCKER_REGISTRY_PASS: 6d#0;Kt;d
+  DOCKER_REGISTRY_USER: gkapustynski@vanto.pl
+
+stages:
+  - init
+  - build
+  - dockerize
+  - deploy
+#=  - e2e
+  
+#= WORKFLOW =======================================================================================
+
+workflow:
+  rules: 
+    - if: '$CI_PIPELINE_SOURCE != "push"'
+      when: never
+      
+    - if: '$CI_COMMIT_REF_NAME == "main"'
+      when: always
+      variables:
+        environment: Production
+        build_front_command: npm run build:production
+        runner: vero-production
+            
+
+    - if: '$CI_COMMIT_REF_NAME == "test"'
+      when: always
+      variables:
+        environment: Test
+        build_front_command: npm run build:test
+        runner: vero-test
+
+    - when: never
+      
+      
+#= INIT ==========================================================================================        
+
+init:
+  stage: init
+  tags:
+    - $runner
+    
+  script:
+    - echo "CI_COMMIT_REF_NAME is '$CI_COMMIT_REF_NAME'"
+    - if [[ "$CI_COMMIT_REF_NAME" == "test" ]]; then
+        cp ./docker-compose.test.yml $dir/docker-compose.yml;
+      else
+        cp ./docker-compose.prod.yml $dir/docker-compose.yml;
+      fi
+    
+#= BUILD ==========================================================================================        
+    
+build-frontend:
+  stage: build  
+  image: $image_frontend
+
+  rules:
+    - changes:
+        - $changes_front
+  tags:
+    - $runner
+
+  script:
+    - echo environment = $environment
+    - mkdir -p $dir_front
+    - cd front
+    - npm install
+    - npm run update-build-date
+    - $build_front_command
+    - cp -ruf dist $dir_front/build
+    - cp -ruf nginx $dir_front/nginx
+    - cp ./Dockerfile $dir_front
+    - cp ./.dockerignore $dir_front
+    
+
+
+
+build-backend:
+  stage: build
+  image: $image_backend
+
+  rules:
+    - changes:
+        - $changes_backend
+  tags:
+    - $runner
+  
+  script:
+    - cd backend
+
+    #= ACCOUNTING
+    - mkdir -p $dir_accounting
+    - dotnet run --project ./src/Accounting/Accounting.API/Accounting.API.csproj -- codegen write
+    - dotnet publish ./src/Accounting/Accounting.API/Accounting.API.csproj -c $environment -r linux-x64 --no-self-contained $warnings_to_suppress --output $dir_accounting
+    - cp ./Dockerfile $dir_accounting
+    - cp ./.dockerignore $dir_accounting
+
+    #= AUTH
+    - mkdir -p $dir_auth
+    - dotnet run --project ./src/Auth/Auth.API/Auth.API.csproj -- codegen write
+    - dotnet publish ./src/Auth/Auth.API/Auth.API.csproj -c $environment -r linux-x64 --no-self-contained $warnings_to_suppress --output $dir_auth
+    - cp ./Dockerfile $dir_auth
+    - cp ./.dockerignore $dir_auth
+
+    #= ASSIGNMENTS
+    - mkdir -p $dir_assignments
+    - dotnet run --project ./src/Assignments/Assignments.API/Assignments.API.csproj -- codegen write
+    - dotnet publish ./src/Assignments/Assignments.API/Assignments.API.csproj -c $environment -r linux-x64 --no-self-contained $warnings_to_suppress --output $dir_assignments
+    - cp ./Dockerfile $dir_assignments
+    - cp ./.dockerignore $dir_assignments
+
+    #= COMPANY
+    - mkdir -p $dir_company
+    - dotnet run --project ./src/Company/Company.API/Company.API.csproj -- codegen write
+    - dotnet publish ./src/Company/Company.API/Company.API.csproj -c $environment -r linux-x64 --no-self-contained $warnings_to_suppress --output $dir_company
+    - cp ./Dockerfile $dir_company
+    - cp ./.dockerignore $dir_company
+
+    #= CUSTOMERS
+    - mkdir -p $dir_customers
+    - dotnet run --project ./src/Customers/Customers.API/Customers.API.csproj -- codegen write
+    - dotnet publish ./src/Customers/Customers.API/Customers.API.csproj -c $environment -r linux-x64 --no-self-contained $warnings_to_suppress --output $dir_customers
+    - cp ./Dockerfile $dir_customers
+    - cp ./.dockerignore $dir_customers
+
+    #= EVENTS
+    - mkdir -p $dir_events
+    - dotnet run --project ./src/Events/Events.API/Events.API.csproj -- codegen write
+    - dotnet publish ./src/Events/Events.API/Events.API.csproj -c $environment -r linux-x64 --no-self-contained $warnings_to_suppress --output $dir_events
+    - cp ./Dockerfile $dir_events
+    - cp ./.dockerignore $dir_events
+
+    #= HUB
+    - mkdir -p $dir_hub
+    - dotnet publish ./src/Hub/Hub.API/Hub.API.csproj -c $environment -r linux-x64 --no-self-contained $warnings_to_suppress --output $dir_hub
+    - cp ./Dockerfile $dir_hub
+    - cp ./.dockerignore $dir_hub
+
+    #= OFFERS
+    - mkdir -p $dir_offers
+    - dotnet run --project ./src/Offers/Offers.API/Offers.API.csproj -- codegen write
+    - dotnet publish ./src/Offers/Offers.API/Offers.API.csproj -c $environment -r linux-x64 --no-self-contained $warnings_to_suppress --output $dir_offers
+    - cp ./Dockerfile $dir_offers
+    - cp ./.dockerignore $dir_offers
+
+    #= FILES
+    - mkdir -p $dir_files
+    - dotnet run --project ./src/Files/Files.API/Files.API.csproj -- codegen write
+    - dotnet publish ./src/Files/Files.API/Files.API.csproj -c $environment -r linux-x64 --no-self-contained $warnings_to_suppress --output $dir_files
+    - cp ./Dockerfile $dir_files
+    - cp ./.dockerignore $dir_files
+
+    #= NOTIFICATIONS
+    - mkdir -p $dir_notifications
+    - dotnet run --project ./src/Notifications/Notifications.API/Notifications.API.csproj -- codegen write
+    - dotnet publish ./src/Notifications/Notifications.API/Notifications.API.csproj -c $environment -r linux-x64 --no-self-contained $warnings_to_suppress --output $dir_notifications
+    - cp ./Dockerfile $dir_notifications
+    - cp ./.dockerignore $dir_notifications
+
+    #= TRANSPORTING
+    - mkdir -p $dir_transporting
+    - dotnet run --project ./src/Transporting/Transporting.API/Transporting.API.csproj -- codegen write
+    - dotnet publish ./src/Transporting/Transporting.API/Transporting.API.csproj -c $environment -r linux-x64 --no-self-contained $warnings_to_suppress --output $dir_transporting
+    - cp ./Dockerfile $dir_transporting
+    - cp ./.dockerignore $dir_transporting
+
+    #= REPORTS
+    - mkdir -p $dir_reports
+    - dotnet run --project ./src/Reports/Reports.API/Reports.API.csproj -- codegen write
+    - dotnet publish ./src/Reports/Reports.API/Reports.API.csproj -c $environment -r linux-x64 --no-self-contained $warnings_to_suppress --output $dir_reports
+    - cp -ruf ./fonts $dir_reports
+    - cp ./src/Reports/Dockerfile $dir_reports
+    - cp ./.dockerignore $dir_reports
+
+    #= SUBCONTRACTORS
+    - mkdir -p $dir_subcontractors
+    - dotnet run --project ./src/Subcontractors/Subcontractors.API/Subcontractors.API.csproj -- codegen write
+    - dotnet publish ./src/Subcontractors/Subcontractors.API/Subcontractors.API.csproj -c $environment -r linux-x64 --no-self-contained $warnings_to_suppress --output $dir_subcontractors
+    - cp ./Dockerfile $dir_subcontractors
+    - cp ./.dockerignore $dir_subcontractors
+
+    #= MIGRATOR
+    - mkdir -p $dir_migrator
+    - dotnet publish ./src/DBMigrator/DBMigrator/DBMigrator.csproj -c $environment -r linux-x64 --no-self-contained $warnings_to_suppress --output $dir_migrator
+    - cp ./src/DBMigrator/Dockerfile $dir_migrator
+    - cp ./.dockerignore $dir_migrator
+    
+    #= GATEWAY
+    - mkdir -p $dir_gateway
+    - dotnet publish ./src/Gateway/Gateway.API/Gateway.API.csproj -c $environment -r linux-x64 --no-self-contained $warnings_to_suppress --output $dir_gateway
+    - cp ./src/Gateway/Gateway.API/ocelot.* $dir_gateway
+    - cp ./Dockerfile $dir_gateway
+    - cp ./.dockerignore $dir_gateway
+  
+
+#= DOCKERIZE ======================================================================================        
+
+dockerize-frontend:
+  stage: dockerize
+  
+  before_script:
+    - echo "$DOCKER_REGISTRY_PASS" | docker login $DOCKER_REGISTRY --username $DOCKER_REGISTRY_USER --password-stdin
+  
+  rules: 
+    - changes: 
+      - $changes_front
+  tags:
+    - $runner
+  
+  script:
+    - docker build -t $front $dir_front
+    - docker save $front -o /.docker/images/$front.tar
+    - docker load -i /.docker/images/$front.tar
+    - rm -rf $dir_front
+    - rm /.docker/images/$front.tar
+
+dockerize-gateway:
+  stage: dockerize
+  
+  before_script:
+    - echo "$DOCKER_REGISTRY_PASS" | docker login $DOCKER_REGISTRY --username $DOCKER_REGISTRY_USER --password-stdin
+    
+  rules: 
+    - changes: 
+      - $changes_gateway
+      - $changes_shared
+  tags:
+    - $runner
+  
+  script:
+    - docker build -t $gateway $dir_gateway --build-arg project=Gateway
+    - docker save $gateway -o /.docker/images/$gateway.tar
+    - docker load -i /.docker/images/$gateway.tar
+    - rm -rf $dir_gateway
+    - rm /.docker/images/$gateway.tar
+
+dockerize-accounting:
+  stage: dockerize
+  
+  before_script:
+    - echo "$DOCKER_REGISTRY_PASS" | docker login $DOCKER_REGISTRY --username $DOCKER_REGISTRY_USER --password-stdin
+  
+  rules: 
+    - changes: 
+      - $changes_accounting
+      - $changes_shared
+  tags:
+    - $runner
+  
+  script:
+    - docker build -t $accounting $dir_accounting --build-arg project=Accounting
+    - docker save $accounting -o /.docker/images/$accounting.tar
+    - docker load -i /.docker/images/$accounting.tar
+    - rm -rf $dir_accounting
+    - rm /.docker/images/$accounting.tar
+
+dockerize-auth:
+  stage: dockerize
+  
+  before_script:
+    - echo "$DOCKER_REGISTRY_PASS" | docker login $DOCKER_REGISTRY --username $DOCKER_REGISTRY_USER --password-stdin
+  
+  rules: 
+    - changes: 
+      - $changes_auth
+      - $changes_shared
+  tags:
+    - $runner
+  
+  script:
+    - docker build -t $auth $dir_auth --build-arg project=Auth
+    - docker save $auth -o /.docker/images/$auth.tar
+    - docker load -i /.docker/images/$auth.tar
+    - rm -rf $dir_auth
+    - rm /.docker/images/$auth.tar
+
+dockerize-assignments:
+  stage: dockerize
+  
+  before_script:
+    - echo "$DOCKER_REGISTRY_PASS" | docker login $DOCKER_REGISTRY --username $DOCKER_REGISTRY_USER --password-stdin
+  
+  rules: 
+    - changes: 
+      - $changes_assignments
+      - $changes_shared
+  tags:
+    - $runner
+  
+  script:
+    - docker build -t $assignments $dir_assignments --build-arg project=Assignments
+    - docker save $assignments -o /.docker/images/$assignments.tar
+    - docker load -i /.docker/images/$assignments.tar
+    - rm -rf $dir_assignments
+    - rm /.docker/images/$assignments.tar
+
+dockerize-company:
+  stage: dockerize
+  
+  before_script:
+    - echo "$DOCKER_REGISTRY_PASS" | docker login $DOCKER_REGISTRY --username $DOCKER_REGISTRY_USER --password-stdin
+  
+  rules: 
+    - changes: 
+      - $changes_company
+      - $changes_shared
+  tags:
+    - $runner
+  
+  script:
+    - docker build -t $company $dir_company --build-arg project=Company
+    - docker save $company -o /.docker/images/$company.tar
+    - docker load -i /.docker/images/$company.tar
+    - rm -rf $dir_company
+    - rm /.docker/images/$company.tar
+
+dockerize-customers:
+  stage: dockerize
+  
+  before_script:
+    - echo "$DOCKER_REGISTRY_PASS" | docker login $DOCKER_REGISTRY --username $DOCKER_REGISTRY_USER --password-stdin
+  
+  rules: 
+    - changes: 
+      - $changes_customers
+      - $changes_shared
+  tags:
+    - $runner
+  
+  script:
+    - docker build -t $customers $dir_customers --build-arg project=Customers
+    - docker save $customers -o /.docker/images/$customers.tar
+    - docker load -i /.docker/images/$customers.tar
+    - rm -rf $dir_customers
+    - rm /.docker/images/$customers.tar
+
+dockerize-events:
+  stage: dockerize
+  
+  before_script:
+    - echo "$DOCKER_REGISTRY_PASS" | docker login $DOCKER_REGISTRY --username $DOCKER_REGISTRY_USER --password-stdin
+  
+  rules: 
+    - changes: 
+      - $changes_events
+      - $changes_shared
+  tags:
+    - $runner
+  
+  script:
+    - docker build -t $events $dir_events --build-arg project=Events
+    - docker save $events -o /.docker/images/$events.tar
+    - docker load -i /.docker/images/$events.tar
+    - rm -rf $dir_events
+    - rm /.docker/images/$events.tar
+
+dockerize-hub:
+  stage: dockerize
+  
+  before_script:
+    - echo "$DOCKER_REGISTRY_PASS" | docker login $DOCKER_REGISTRY --username $DOCKER_REGISTRY_USER --password-stdin
+  
+  rules: 
+    - changes: 
+      - $changes_hub
+      - $changes_shared
+  tags:
+    - $runner
+  
+  script:
+    - docker build -t $hub $dir_hub --build-arg project=Hub
+    - docker save $hub -o /.docker/images/$hub.tar
+    - docker load -i /.docker/images/$hub.tar
+    - rm -rf $dir_hub
+    - rm /.docker/images/$hub.tar
+
+dockerize-offers:
+  stage: dockerize
+  
+  before_script:
+    - echo "$DOCKER_REGISTRY_PASS" | docker login $DOCKER_REGISTRY --username $DOCKER_REGISTRY_USER --password-stdin
+  
+  rules: 
+    - changes: 
+      - $changes_offers
+      - $changes_shared
+  tags:
+    - $runner
+  
+  script:
+    - docker build -t $offers $dir_offers --build-arg project=Offers
+    - docker save $offers -o /.docker/images/$offers.tar
+    - docker load -i /.docker/images/$offers.tar
+    - rm -rf $dir_offers
+    - rm /.docker/images/$offers.tar
+
+dockerize-files:
+  stage: dockerize
+  
+  before_script:
+    - echo "$DOCKER_REGISTRY_PASS" | docker login $DOCKER_REGISTRY --username $DOCKER_REGISTRY_USER --password-stdin
+  
+  rules: 
+    - changes: 
+      - $changes_files
+      - $changes_shared
+  tags:
+    - $runner
+  
+  script:
+    - docker build -t $files $dir_files --build-arg project=Files
+    - docker save $files -o /.docker/images/$files.tar
+    - docker load -i /.docker/images/$files.tar
+    - rm -rf $dir_files
+    - rm /.docker/images/$files.tar
+
+dockerize-notifications:
+  stage: dockerize
+  
+  before_script:
+    - echo "$DOCKER_REGISTRY_PASS" | docker login $DOCKER_REGISTRY --username $DOCKER_REGISTRY_USER --password-stdin
+  
+  rules: 
+    - changes: 
+      - $changes_notifications
+      - $changes_shared
+  tags:
+    - $runner
+  
+  script:
+    - docker build -t $notifications $dir_notifications --build-arg project=Notifications
+    - docker save $notifications -o /.docker/images/$notifications.tar
+    - docker load -i /.docker/images/$notifications.tar
+    - rm -rf $dir_notifications
+    - rm /.docker/images/$notifications.tar
+
+dockerize-transporting:
+  stage: dockerize
+  
+  before_script:
+    - echo "$DOCKER_REGISTRY_PASS" | docker login $DOCKER_REGISTRY --username $DOCKER_REGISTRY_USER --password-stdin
+  
+  rules: 
+    - changes: 
+      - $changes_transporting
+      - $changes_shared
+  tags:
+    - $runner
+  
+  script:
+    - docker build -t $transporting $dir_transporting --build-arg project=Transporting
+    - docker save $transporting -o /.docker/images/$transporting.tar
+    - docker load -i /.docker/images/$transporting.tar
+    - rm -rf $dir_transporting
+    - rm /.docker/images/$transporting.tar
+
+dockerize-reports:
+  stage: dockerize
+  
+  before_script:
+    - echo "$DOCKER_REGISTRY_PASS" | docker login $DOCKER_REGISTRY --username $DOCKER_REGISTRY_USER --password-stdin
+  
+  rules: 
+    - changes: 
+      - $changes_reports
+      - $changes_shared
+  tags:
+    - $runner
+  
+  script:
+    - docker build -t $reports $dir_reports --build-arg project=Reports
+    - docker save $reports -o /.docker/images/$reports.tar
+    - docker load -i /.docker/images/$reports.tar
+    - rm -rf $dir_reports
+    - rm /.docker/images/$reports.tar
+
+dockerize-subcontractors:
+  stage: dockerize
+  
+  before_script:
+    - echo "$DOCKER_REGISTRY_PASS" | docker login $DOCKER_REGISTRY --username $DOCKER_REGISTRY_USER --password-stdin
+  
+  rules: 
+    - changes: 
+      - $changes_subcontractors
+      - $changes_shared
+  tags:
+    - $runner
+  
+  script:
+    - docker build -t $subcontractors $dir_subcontractors --build-arg project=Subcontractors
+    - docker save $subcontractors -o /.docker/images/$subcontractors.tar
+    - docker load -i /.docker/images/$subcontractors.tar
+    - rm -rf $dir_subcontractors
+    - rm /.docker/images/$subcontractors.tar
+
+dockerize-migrator:
+  stage: dockerize
+  
+  before_script:
+    - echo "$DOCKER_REGISTRY_PASS" | docker login $DOCKER_REGISTRY --username $DOCKER_REGISTRY_USER --password-stdin
+  
+  rules: 
+    - changes: 
+      - $changes_migrator
+      - $changes_shared
+  tags:
+    - $runner
+  
+  script:
+    - docker build -t $migrator $dir_migrator
+    - docker save $migrator -o /.docker/images/$migrator.tar
+    - docker load -i /.docker/images/$migrator.tar
+    - rm -rf $dir_migrator
+    - rm /.docker/images/$migrator.tar
+
+
+#= DEPLOY =========================================================================================        
+
+deploy:
+  stage: deploy
+  
+  rules: 
+    - changes: 
+      - $changes_backend
+      - $changes_front
+  tags:
+    - $runner
+  
+  script:
+    - cp -ruf ./tools /.docker
+    - cd /.docker    
+    - docker compose stop
+    - docker compose up -d
+    - docker system prune -f
+    
+#= tests:
+#=   stage: e2e
+#=   image: mcr.microsoft.com/playwright:v1.39.0-jammy
+#=   rules: 
+#=     - if: '$CI_COMMIT_REF_NAME == "test"'
+#=   allow_failure: true
+#=   timeout: 6 hours 
+#=   artifacts:
+#=     paths: 
+#=       - tests/playwright-report/
+#=     when: always
+#=     expire_in: 7 days  
+#=   script:
+#=     - echo environment = $environment
+#=     - cd tests/
+#=     - npm install
+#=     - npx playwright install-deps
+#=     - npx playwright install
+#=     - npx playwright test --workers 1
+#=   tags: 
+#=     - $runner
+  
+#=   variables:
+#=     NODE_OPTIONS: --max_old_space_size=8196
