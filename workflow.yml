@@ -1,0 +1,154 @@
+
+job: 
+    allow_failure: false
+    
+    needs: ["build"] // wymaga ukończenia joba build
+            
+            
+            
+post_merge_deploy:
+  script: echo "Pipeline po mergu MR #$CI_MERGE_REQUEST_IID"
+  rules:
+    # Sprawdza czy jesteśmy na target branch po mergu
+    - if: $CI_MERGE_REQUEST_ID && $CI_COMMIT_BRANCH == $CI_MERGE_REQUEST_TARGET_BRANCH_NAME
+    - when: never
+    
+    
+    
+    
+// nuget ze zmiennej
+//Dodaj te zmienne jako Masked i Protected:
+
+NUGET_CONFIG_CONTENT: |
+  <?xml version="1.0" encoding="utf-8"?>
+  <configuration>
+    <packageSources>
+      <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
+      <add key="gitlab" value="https://gitlab.com/api/v4/packages/nuget/index.json" />
+    </packageSources>
+    <packageSourceCredentials>
+      <gitlab>
+        <add key="Username" value="gitlab-ci-token" />
+        <add key="ClearTextPassword" value="$GITLAB_NUGET_TOKEN" />
+      </gitlab>
+    </packageSourceCredentials>
+  </configuration>
+
+GITLAB_NUGET_TOKEN: glpt-xxxxtokenxxx
+AZURE_FEED_TOKEN: xxxpatxxx  # opcjonalnie
+
+
+
+   
+restore:
+  stage: restore
+  image: mcr.microsoft.com/dotnet/sdk:$DOTNET_VERSION
+  before_script:
+    # Tworzy katalog .nuget
+    - mkdir -p .nuget
+    # Generuje NuGet.config z zmiennej GitLab
+    - echo "$NUGET_CONFIG_CONTENT" > .nuget/NuGet.config
+    # Czyści cache lokalny
+    - dotnet nuget locals all --clear
+  script:
+    - dotnet restore YourSolution.sln --configfile .nuget/NuGet.config --verbosity 
+    
+    
+ // deply do iis 1   
+stages:
+  - build
+  - deploy
+
+variables:
+  PROJECT: "src/YourApp/YourApp.csproj"
+  PUBLISH_DIR: "publish"
+  IIS_SITE_PATH: "C:\\inetpub\\sites\\YourApp"
+  IIS_APPPOOL: "YourAppPool"
+
+build:
+  stage: build
+  tags: ["windows"]   # tag Twojego Windows runnera (może być inny)
+  script:
+    - dotnet --info
+    - dotnet restore "%PROJECT%"
+    - dotnet publish "%PROJECT%" -c Release -o "%PUBLISH_DIR%"
+  artifacts:
+    paths:
+      - publish/
+    expire_in: 1 hour
+
+deploy:
+  stage: deploy
+  tags: ["windows"]
+  needs: ["build"]
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+  script:
+    # Stop app pool (zwolnienie locków plików)
+    - powershell -NoProfile -Command "Import-Module WebAdministration; Stop-WebAppPool -Name '%IIS_APPPOOL%'"
+    # Kopiowanie plików (robocopy dobrze znosi duże drzewka)
+    - powershell -NoProfile -Command "robocopy '%CI_PROJECT_DIR%\\%PUBLISH_DIR%' '%IIS_SITE_PATH%' /MIR /R:2 /W:2; if ($LastExitCode -ge 8) { exit 1 }"
+    # Start app pool
+    - powershell -NoProfile -Command "Import-Module WebAdministration; Start-WebAppPool -Name '%IIS_APPPOOL%'"
+    
+    
+// deploy do IIS 2
+stages:
+  - build
+  - deploy
+
+variables:
+  # Ścieżka do projektu .csproj
+  PROJECT_PATH: "src/MojaAplikacja/MojaAplikacja.csproj"
+  # Katalog, gdzie build zapisze pliki (wewnątrz workspace runnera)
+  PUBLISH_DIR: "publish_output"
+  # Docelowy katalog na serwerze IIS
+  IIS_SITE_PATH: "C:\\inetpub\\wwwroot\\MojaAplikacja"
+
+# === JOB 1: Budowanie aplikacji ===
+build_app:
+  stage: build
+  tags:
+    - windows  # Tag twojego runnera z .NET SDK
+  script:
+    - echo "Restoring dependencies..."
+    - dotnet restore $PROJECT_PATH
+    - echo "Publishing application..."
+    # -o wskazuje folder wyjściowy, -c Release optymalizuje kod
+    - dotnet publish $PROJECT_PATH -c Release -o $PUBLISH_DIR
+  artifacts:
+    name: "app-build-$CI_COMMIT_SHORT_SHA"
+    paths:
+      - $PUBLISH_DIR/
+    expire_in: 1 hour
+
+# === JOB 2: Wdrożenie na IIS ===
+deploy_iis:
+  stage: deploy
+  tags:
+    - windows  # Ten runner musi mieć dostęp do dysku C: serwera IIS
+  needs: ["build_app"] # Pobiera artefakty tylko z tego joba
+  script:
+    - echo "Deploying to $IIS_SITE_PATH"
+    
+    # 1. Sprawdź czy katalog docelowy istnieje, jak nie to stwórz
+    - if (!(Test-Path $IIS_SITE_PATH)) { New-Item -ItemType Directory -Force -Path $IIS_SITE_PATH }
+
+    # 2. Wrzuć app_offline.htm, żeby zwolnić pliki DLL (Locking)
+    - echo "<h1>Trwa aktualizacja serwisu...</h1>" > "$IIS_SITE_PATH\app_offline.htm"
+    
+    # 3. Odczekaj chwilę, aż IIS zwolni procesy (ważne!)
+    - Start-Sleep -Seconds 5
+
+    # 4. Kopiowanie plików z artefaktów do katalogu IIS
+    # Recurse: podkatalogi, Force: nadpisz
+    - Copy-Item -Path "$PUBLISH_DIR\*" -Destination "$IIS_SITE_PATH" -Recurse -Force
+
+    # 5. Usuń app_offline.htm, żeby aplikacja wstała
+    - Remove-Item -Path "$IIS_SITE_PATH\app_offline.htm" -Force
+    
+    - echo "Deployment finished successfully."
+  environment:
+    name: production
+    url: http://twoja-domena.com
+
